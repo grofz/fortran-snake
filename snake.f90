@@ -6,9 +6,11 @@ module snake_mod
 
 !integer :: leak_check_counter = 0
 
-    integer, parameter :: WINDOW_WIDTH=800, WINDOW_HEIGHT=600, PIXEL_SIZE=40
+    integer, parameter :: WINDOW_WIDTH=800, WINDOW_HEIGHT=600, PIXEL_SIZE=10
     integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE, MAP_HEIGHT=WINDOW_HEIGHT/PIXEL_SIZE
-    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=30
+    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=1
+
+    integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/1
 
     type(color_type), parameter :: PALETTE(*) = [ &
     & GRAY, DARKGRAY, YELLOW, GOLD, ORANGE, MAROON, GREEN, LIME, DARKGREEN, SKYBLUE, BLUE]
@@ -17,6 +19,10 @@ module snake_mod
 
     integer, parameter :: ID_FREE=0, ID_FOOD=-2
     integer, parameter :: STATE_GAME=0, STATE_END=1
+
+    ! Left, Down, Right, Up
+    integer, parameter :: DIR_LEFT=1, DIR_DOWN=2, DIR_RIGHT=3, DIR_UP=4
+    integer, parameter :: DIRS(2,4) = reshape([-1, 0, 0, 1, 1, 0, 0, -1], shape=[2,4])
 
 
     type game_t
@@ -34,7 +40,7 @@ module snake_mod
     type snake_t
         type(snakeslice_t), pointer :: head => null()
         type(snakeslice_t), pointer :: tail => null()
-        integer :: v(2) = 0
+        integer :: dir = 3
         logical :: cool_down = .false.
         integer :: length = 1
         integer :: id
@@ -71,7 +77,10 @@ contains
             call control_snake(snake)
             frame_counter = frame_counter + 1
             collision = ID_FREE
-            if (mod(frame_counter,UPDATE_FREQ)==0) call update_snake(snake, game%map, collision)
+            if (mod(frame_counter,UPDATE_FREQ)==0) then
+                call ai_snake(snake, game%map)
+                call update_snake(snake, game%map, collision)
+            end if
             if (collision > ID_FREE) then
                 game%state = STATE_END
             else if (collision==ID_FOOD) then
@@ -146,7 +155,8 @@ contains
 !leak_check_counter = leak_check_counter+1
         this%tail => this%head
         this%head%x = [1,1]
-        this%v = 0
+        !this%v = 0
+        this%dir = 3
         this%cool_down = .false.
         this%length = 1
         snake_counter = snake_counter+1
@@ -195,6 +205,7 @@ contains
         integer, intent(inout) :: map(:,:)
         integer, intent(out) :: collision
         type(snakeslice_t), pointer :: slice
+        integer :: v(2)
 
         ! un-mark pixel occupied by tail, except if a newly growed
         ! slice occupies same pixel as the old tail
@@ -213,8 +224,9 @@ contains
         end do
 
         ! move head and mark the pixel
-        this%head%x(1) = modulo(this%head%x(1) + this%v(1) - 1, MAP_WIDTH) + 1
-        this%head%x(2) = modulo(this%head%x(2) + this%v(2) - 1, MAP_HEIGHT) + 1
+        v = DIRS(:,this%dir)
+        this%head%x(1) = modulo(this%head%x(1) + v(1) - 1, MAP_WIDTH) + 1
+        this%head%x(2) = modulo(this%head%x(2) + v(2) - 1, MAP_HEIGHT) + 1
         collision = map(this%head%x(1),this%head%x(2))
         map(this%head%x(1),this%head%x(2)) = this%id
 
@@ -224,15 +236,15 @@ contains
     subroutine control_snake(this)
         class(snake_t), intent(inout) :: this
 
-        if (is_key_down(KEY_D) .and. this%v(1)/=-1) then
-            this%v = [1,0]
-        else if (is_key_down(KEY_A) .and. this%v(1)/=1) then
-            this%v = [-1,0]
+        if (is_key_down(KEY_D) .and. this%dir/=DIR_LEFT) then
+            this%dir = DIR_RIGHT
+        else if (is_key_down(KEY_A) .and. this%dir/=DIR_RIGHT) then
+            this%dir = DIR_LEFT
         end if
-        if (is_key_down(KEY_S) .and. this%v(2)/=-1) then
-            this%v = [0,1]
-        else if (is_key_down(KEY_W) .and. this%v(2)/=1) then
-            this%v = [0,-1]
+        if (is_key_down(KEY_S) .and. this%dir/=DIR_UP) then
+            this%dir = DIR_DOWN
+        else if (is_key_down(KEY_W) .and. this%dir/=DIR_DOWN) then
+            this%dir = DIR_UP
         end if
 
         if (is_key_pressed(KEY_X)) call grow_snake(this)
@@ -241,7 +253,77 @@ contains
     subroutine ai_snake(this, map)
         class(snake_t), intent(inout) :: this
         integer, intent(in) :: map(:,:)
+
+        integer :: dir(4), nrep, idir, repmin, repnow, isel
+        real :: x
+
+        nrep = 0
+        repmin = AI_SIGHT_RANGE
+        do idir=1,4
+            repnow = look_at_dir(this, map, idir)
+            if (repnow < repmin) then
+                nrep = 1
+                repmin = repnow
+                dir(nrep) = idir
+            else if (repnow == repmin) then
+                nrep = nrep + 1
+                dir(nrep) = idir
+            end if
+        end do
+        call random_number(x)
+        if (repmin == AI_SIGHT_RANGE-1) then
+            print *, 'AI - cul de sac reached'
+        end if
+        if (nrep==0) then
+            print *, 'AI - could not do anything'
+            return
+        end if
+        isel = 1 + int(x*nrep)
+        this%dir = dir(isel)
     end subroutine ai_snake
+
+    function look_at_dir(snake, map, dir) result(repulse)
+        type(snake_t), intent(in) :: snake
+        integer, intent(in) :: map(:,:)
+        integer, intent(in) :: dir
+        integer :: repulse
+        
+        block ! LEFT | RIGHT and UP | DOWN are not allowed
+            integer :: d1, d2
+            d1 = min(snake%dir, dir)
+            d2 = max(snake%dir, dir)
+            if (d2-d1 == 2) then
+                repulse = AI_SIGHT_RANGE
+                return
+            end if
+        end block
+
+        block ! collision with 
+            integer :: x, y, i
+            x = snake%head%x(1)
+            y = snake%head%x(2)
+            do i=1, AI_SIGHT_RANGE
+                x = modulo(x + DIRS(1,dir) - 1, MAP_WIDTH) + 1
+                y = modulo(y + DIRS(2,dir) - 1, MAP_HEIGHT) + 1
+                if (map(x,y) > ID_FREE) then
+                    repulse = AI_SIGHT_RANGE - i
+                    return
+                else if (map(x,y) == ID_FOOD) then
+                    repulse = i - AI_SIGHT_RANGE
+                    return
+                end if
+            end do
+            repulse = 0
+        end block
+! x 1 2 3 4 5 6=SIGHT
+! x S         6-1 = 5
+! x . S       6-2 = 4
+! x . . S     6-3 = 3
+! x . . . . . 6-6 = 0        
+! x . . F     3-6 = -3
+! x . F .     2-6 = -4    
+! x F . .     1-6 = -5
+    end function look_at_dir
 
 end module snake_mod
 
