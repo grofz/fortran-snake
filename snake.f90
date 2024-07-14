@@ -8,12 +8,13 @@ module snake_mod
 
     integer, parameter :: WINDOW_WIDTH=800, WINDOW_HEIGHT=600, PIXEL_SIZE=10
     integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE, MAP_HEIGHT=WINDOW_HEIGHT/PIXEL_SIZE
-    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=1
+    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=5
+    integer, parameter :: NUMBER_OF_SNAKES=8, NUMBER_OF_FOOD=5 !MAP_WIDTH*MAP_HEIGHT*0.03
 
-    integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/1
+    integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/2
 
     type(color_type), parameter :: PALETTE(*) = [ &
-    & GRAY, DARKGRAY, YELLOW, GOLD, ORANGE, MAROON, GREEN, LIME, DARKGREEN, SKYBLUE, BLUE]
+    & BLACK, GRAY, LIME, YELLOW, GOLD, ORANGE, MAROON, DARKGRAY, GREEN, DARKGREEN, SKYBLUE, BLUE]
 
     integer(int64) :: frame_counter
 
@@ -41,8 +42,10 @@ module snake_mod
         type(snakeslice_t), pointer :: head => null()
         type(snakeslice_t), pointer :: tail => null()
         integer :: dir = 3
-        logical :: cool_down = .false.
+        logical :: is_growing = .false.
+        logical :: is_alive = .true.
         integer :: length = 1
+        integer :: ai_agent = 1
         integer :: id
     contains
         final :: free_snake
@@ -50,50 +53,93 @@ module snake_mod
     
 contains
 
-    subroutine initialize(snake, game)
-        type(snake_t), intent(inout) :: snake
+    subroutine initialize(snakes, game)
+        type(snake_t), intent(inout) :: snakes(:)
         type(game_t), intent(inout) :: game
-        integer :: tmp
+        integer :: tmp, i
 
         game%state = STATE_GAME
         game%map = ID_FREE
         game%snake_counter = 0
-        call new_snake(snake, game%snake_counter)
-        call update_snake(snake, game%map, tmp)
-        do tmp=1, 20
+        do i=1,NUMBER_OF_SNAKES
+            call new_snake(snakes(i), game%snake_counter, game%map)
+            ! TODO verify if snake could not be placed
+        end do
+        !snakes(1)%ai_agent = 0 ! manual control of snake 1
+        do tmp=1, NUMBER_OF_FOOD
             call grow_food(game%map)
         end do
     end subroutine initialize
 
 
-    subroutine main_loop(snake, game)
-        type(snake_t), intent(inout) :: snake
+    subroutine main_loop(snakes, game)
+        type(snake_t), intent(inout) :: snakes(:)
         type(game_t), intent(inout) :: game
-        integer :: collision
+        integer :: collision(NUMBER_OF_SNAKES), i
         character(len=32) :: buffer
 
         select case(game%state)
         case(STATE_GAME)
-            call control_snake(snake)
+            call mancontrol_snake(snakes(1))
             frame_counter = frame_counter + 1
             collision = ID_FREE
             if (mod(frame_counter,UPDATE_FREQ)==0) then
-                call ai_snake(snake, game)
-                call update_snake(snake, game%map, collision)
+                do i=1,NUMBER_OF_SNAKES
+                    call aicontrol_snake(snakes(i), game)
+                end do
+                do i=1,NUMBER_OF_SNAKES
+                    call update_snake(snakes(i), game%map, collision(i))
+                end do
+                ! grow snakes that have eaten food
+                do i=1,NUMBER_OF_SNAKES
+                    if (collision(i)==ID_FOOD) then
+                        call grow_snake(snakes(i))
+                        call grow_food(game%map)
+                    end if
+                end do
+                ! resolve collisions
+                do i=1,NUMBER_OF_SNAKES
+!TODO
+! - food eaten by two snakes
+                    if (collision(i) > ID_FREE) then
+                        snakes(i)%is_alive = .false.
+                        ! snake collides into the tail that will be removed in the next frame
+                        associate(other_snake=>snakes(collision(i)))
+                            if (other_snake%id>i .and. .not. other_snake%is_growing .and. &
+                                & all(other_snake%tail%x==snakes(i)%head%x)) then
+                                snakes(i)%is_alive = .true.
+print '("Close call for ",i0," bumping into ",i0,"s tail")', i, other_snake%id
+                            elseif (other_snake%id==i) then
+print '("Snake ",i0," killed itself")', i
+                            else
+print '("Snake ",i0," killed by ",i0)', i, other_snake%id
+                            end if
+
+                            ! head on with other snake (correct that other snake did not collide)
+                            if (other_snake%id<i .and. all(other_snake%head%x==snakes(i)%head%x)) then
+                                other_snake%is_alive = .false.
+print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
+                            end if
+                        end associate
+                    end if
+                end do
+                do i=1,NUMBER_OF_SNAKES
+                    snakes(i)%is_growing = .false.
+                end do
             end if
-            if (collision > ID_FREE) then
-                game%state = STATE_END
-            else if (collision==ID_FOOD) then
-                call grow_snake(snake)
-                call grow_food(game%map)
-            end if
+
+            ! end if all is dead
+            if (count(snakes%is_alive)==0) game%state = STATE_END
         case(STATE_END)
-            if (is_key_pressed(KEY_R)) call initialize(snake, game)
+            if (is_key_pressed(KEY_R)) then
+                call initialize(snakes, game)
+                print '(/,"Game restarted")'
+            end if
         case default
             error stop 'invalid state'
         end select
 
-        write(buffer,"('length = ',i0)") snake%length
+        write(buffer,"('length = ',i0)") snakes(1)%length
         if (game%state==STATE_END) buffer = trim(buffer)//' (press R to restart)'
 
         call begin_drawing()
@@ -148,19 +194,38 @@ contains
     ! ===========
     ! SNAKE CLASS
     ! ===========
-    subroutine new_snake(this, snake_counter)
+    subroutine new_snake(this, snake_counter, map)
         type(snake_t), intent(out) :: this
         integer, intent(inout) :: snake_counter
+        integer, intent(inout) :: map(:,:)
+
+        real :: x(2)
+        integer :: i
+        integer, parameter :: SAFE_REPEAT = 10000
+
         allocate(this%head)
+        do i=1,SAFE_REPEAT
+            call random_number(x)
+            this%head%x = int(x*shape(map))+1
+            if (map(this%head%x(1),this%head%x(2))==ID_FREE) exit
+        end do
+        if (i==SAFE_REPEAT+1) then
+            deallocate(this%head)
+            print *, 'could not find free pixesl for a new snake'
+            return
+        end if
+
 !leak_check_counter = leak_check_counter+1
         this%tail => this%head
-        this%head%x = [1,1]
-        !this%v = 0
-        this%dir = 3
-        this%cool_down = .false.
+        call random_number(x(1))
+        this%dir = int(x(1)*4)+1 
+        this%is_growing = .false.
+        this%is_alive = .true.
+        this%ai_agent = 1 ! on default controlled by AI
         this%length = 1
         snake_counter = snake_counter+1
         this%id = snake_counter
+        map(this%head%x(1),this%head%x(2)) = this%id
     end subroutine new_snake
 
     elemental subroutine free_snake(this)
@@ -186,14 +251,16 @@ contains
         class(snake_t), intent(inout) :: this
         type(snakeslice_t), pointer :: newslice
 
+        if (.not. this%is_alive) return
+
         ! will run only if not on cool-down, cool-down removed in update_snake
-        if (.not. this%cool_down) then
+        if (.not. this%is_growing) then
             allocate(newslice)
 !leak_check_counter = leak_check_counter + 1
             newslice%x = this%tail%x
             newslice%prev => this%tail
             this%tail => newslice
-            this%cool_down = .true.
+            this%is_growing = .true.
             this%length = this%length + 1
         else
             print *, 'Warning: cool-down is active'
@@ -206,6 +273,8 @@ contains
         integer, intent(out) :: collision
         type(snakeslice_t), pointer :: slice
         integer :: v(2)
+
+        if (.not. this%is_alive) return
 
         ! un-mark pixel occupied by tail, except if a newly growed
         ! slice occupies same pixel as the old tail
@@ -229,11 +298,9 @@ contains
         this%head%x(2) = modulo(this%head%x(2) + v(2) - 1, MAP_HEIGHT) + 1
         collision = map(this%head%x(1),this%head%x(2))
         map(this%head%x(1),this%head%x(2)) = this%id
+    end subroutine update_snake
 
-        this % cool_down = .false.
-    end subroutine
-
-    subroutine control_snake(this)
+    subroutine mancontrol_snake(this)
         class(snake_t), intent(inout) :: this
 
         if (is_key_down(KEY_D) .and. this%dir/=DIR_LEFT) then
@@ -248,15 +315,17 @@ contains
         end if
 
         if (is_key_pressed(KEY_X)) call grow_snake(this)
-    end subroutine control_snake
+    end subroutine mancontrol_snake
 
-    subroutine ai_snake(this, game)
+    subroutine aicontrol_snake(this, game)
         class(snake_t), intent(inout) :: this
         type(game_t), intent(in) :: game
 
         integer :: repmin, repulse(4)
         integer, allocatable :: adir(:)
         real :: x
+
+        if (.not. this%is_alive .or. this%ai_agent/=1) return
 
         ! pick the best direction, select randomly if more than one direction
         ! look the same
@@ -265,8 +334,8 @@ contains
         adir = pack([1,2,3,4], repulse==repmin)
         call random_number(x)
         this%dir = adir(1 + int(x*size(adir)))
-        if (repmin == AI_SIGHT_RANGE-1) print *, 'AI - cul de sac reached'
-    end subroutine ai_snake
+        !if (repmin == AI_SIGHT_RANGE-1) print '("AI - cul de sac reached (",i0,")")', this%id
+    end subroutine aicontrol_snake
 
     elemental function look_at_dir(snake, game, dir) result(repulse)
         type(snake_t), intent(in) :: snake
@@ -321,18 +390,18 @@ end module snake_mod
 
 program main
     use snake_mod, only : c_null_char, WINDOW_WIDTH, WINDOW_HEIGHT, main_loop, &
-    & TARGET_FPS, initialize, snake_t, game_t !, leak_check_counter
+    & TARGET_FPS, initialize, snake_t, game_t, NUMBER_OF_SNAKES !, leak_check_counter
     use raylib, only : window_should_close, init_window, close_window, set_target_fps
     implicit none (type, external)
 
     block
-        type(snake_t) :: snake
+        type(snake_t) :: snakes(NUMBER_OF_SNAKES)
         type(game_t) :: game
         call init_window(WINDOW_WIDTH, WINDOW_HEIGHT, "Snake v 01"//c_null_char)
         call set_target_fps(TARGET_FPS)
-        call initialize(snake, game)
+        call initialize(snakes, game)
         do while (.not. window_should_close())
-            call main_loop(snake, game)
+            call main_loop(snakes, game)
         end do
         call close_window()
     end block
