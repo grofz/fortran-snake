@@ -6,25 +6,24 @@ module snake_mod
 
 !integer :: leak_check_counter = 0
 
-    integer, parameter :: WINDOW_WIDTH=800, WINDOW_HEIGHT=600, PIXEL_SIZE=10
-    integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE, MAP_HEIGHT=WINDOW_HEIGHT/PIXEL_SIZE
-    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=5
-    integer, parameter :: NUMBER_OF_SNAKES=8, NUMBER_OF_FOOD=5 !MAP_WIDTH*MAP_HEIGHT*0.03
-
-    integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/2
+    integer, parameter :: WINDOW_WIDTH=1.5*800, WINDOW_HEIGHT=1.5*600, PIXEL_SIZE=10
+    integer, parameter :: WINDOW_TOP_MARGIN=30
+    integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE
+    integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
+    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=2
+    integer, parameter :: NUMBER_OF_SNAKES=16, NUMBER_OF_FOOD=MAP_WIDTH*MAP_HEIGHT*0.001
+    integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/4
 
     type(color_type), parameter :: PALETTE(*) = [ &
-    & BLACK, GRAY, LIME, YELLOW, GOLD, ORANGE, MAROON, DARKGRAY, GREEN, DARKGREEN, SKYBLUE, BLUE]
+    & BLACK, BEIGE, LIME, GOLD, PINK, MAROON, SKYBLUE, DARKGRAY, GREEN, DARKGREEN, BLUE, VIOLET]
 
     integer(int64) :: frame_counter
 
     integer, parameter :: ID_FREE=0, ID_FOOD=-2
     integer, parameter :: STATE_GAME=0, STATE_END=1
-
     ! Left, Down, Right, Up
     integer, parameter :: DIR_LEFT=1, DIR_DOWN=2, DIR_RIGHT=3, DIR_UP=4
     integer, parameter :: DIRS(2,4) = reshape([-1, 0, 0, 1, 1, 0, 0, -1], shape=[2,4])
-
 
     type game_t
         integer :: map(MAP_WIDTH, MAP_HEIGHT)
@@ -75,8 +74,9 @@ contains
     subroutine main_loop(snakes, game)
         type(snake_t), intent(inout) :: snakes(:)
         type(game_t), intent(inout) :: game
+
         integer :: collision(NUMBER_OF_SNAKES), i
-        character(len=32) :: buffer
+        character(len=:), allocatable :: text_buff
 
         select case(game%state)
         case(STATE_GAME)
@@ -88,7 +88,7 @@ contains
                     call aicontrol_snake(snakes(i), game)
                 end do
                 do i=1,NUMBER_OF_SNAKES
-                    call update_snake(snakes(i), game%map, collision(i))
+                    call move_snake(snakes(i), game%map, collision(i))
                 end do
                 ! grow snakes that have eaten food
                 do i=1,NUMBER_OF_SNAKES
@@ -99,8 +99,6 @@ contains
                 end do
                 ! resolve collisions
                 do i=1,NUMBER_OF_SNAKES
-!TODO
-! - food eaten by two snakes
                     if (collision(i) > ID_FREE) then
                         snakes(i)%is_alive = .false.
                         ! snake collides into the tail that will be removed in the next frame
@@ -118,6 +116,8 @@ print '("Snake ",i0," killed by ",i0)', i, other_snake%id
                             ! head on with other snake (correct that other snake did not collide)
                             if (other_snake%id<i .and. all(other_snake%head%x==snakes(i)%head%x)) then
                                 other_snake%is_alive = .false.
+                                ! food claimed by two snakes during head on collision
+                                if (other_snake%is_growing) other_snake%length=other_snake%length-1
 print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
                             end if
                         end associate
@@ -130,38 +130,52 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
 
             ! end if all is dead
             if (count(snakes%is_alive)==0) game%state = STATE_END
+
         case(STATE_END)
-            if (is_key_pressed(KEY_R)) then
-                call initialize(snakes, game)
-                print '(/,"Game restarted")'
-            end if
+            continue
         case default
             error stop 'invalid state'
         end select
 
-        write(buffer,"('length = ',i0)") snakes(1)%length
-        if (game%state==STATE_END) buffer = trim(buffer)//' (press R to restart)'
+        ! manual restart
+        if (is_key_pressed(KEY_R)) then
+            call initialize(snakes, game)
+            print '(/,"Game restarted")'
+        end if
 
         call begin_drawing()
             call clear_background(RAYWHITE)
-            call render_map(game%map)
-            call draw_text(trim(buffer)//c_null_char, 0, 0, 15, RED)
+            call render_map(game%map, snakes)
+            call draw_line(0, WINDOW_TOP_MARGIN, WINDOW_WIDTH, WINDOW_TOP_MARGIN, BLACK)
+            call draw_line(0, WINDOW_TOP_MARGIN+WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_TOP_MARGIN+WINDOW_HEIGHT, BLACK)
+            call render_score(snakes)
+            if (game%state==STATE_END) then
+                text_buff = 'PRESS "R" TO RESTART'//c_null_char
+                associate (fs=>35)
+                    call draw_text(text_buff, &
+                    &   WINDOW_WIDTH/2-measure_text(text_buff, fs)/2, &
+                    &   WINDOW_TOP_MARGIN+(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/2-fs/2, fs, BLACK)
+                end associate
+            end if
         call end_drawing()
     end subroutine main_loop
 
 
-    subroutine render_map(map)
+    subroutine render_map(map, snakes)
         integer, intent(in) :: map(:,:)
-        integer :: x, y, wx, wy, id_color
+        type(snake_t), intent(in) :: snakes(:)
+        integer :: x, y, wx, wy, id_color, i
         do x=1, MAP_WIDTH
             do y=1,MAP_HEIGHT
                 wx = (x-1)*PIXEL_SIZE
-                wy = (y-1)*PIXEL_SIZE
+                wy = (y-1)*PIXEL_SIZE + WINDOW_TOP_MARGIN
                 select case(map(x,y))
                 case default
-                    if (map(x,y)<=0) error stop 'invalid value in map'
+                    if (map(x,y)<=0 .or. map(x,y)>size(snakes)) error stop 'invalid value in map'
                     id_color = mod(map(x,y)-1, size(PALETTE))+1
-                    call draw_rectangle(wx, wy, PIXEL_SIZE, PIXEL_SIZE, PALETTE(id_color))
+                    if (any(snakes(map(x,y))%head%x/=[x,y])) then
+                        call draw_rectangle(wx, wy, PIXEL_SIZE, PIXEL_SIZE, PALETTE(id_color))
+                    end if
                 case (ID_FOOD)
                     call draw_circle(int(wx+0.5*PIXEL_SIZE), int(wy+0.5*PIXEL_SIZE), 0.5*real(PIXEL_SIZE), GREEN) 
 
@@ -169,7 +183,74 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
                 end select
             end do
         end do
+
+        ! render heads separately
+        do i=1,size(snakes)
+            wx = (snakes(i)%head%x(1)-1)*PIXEL_SIZE
+            wy = (snakes(i)%head%x(2)-1)*PIXEL_SIZE + WINDOW_TOP_MARGIN
+            id_color = mod(snakes(i)%id-1, size(PALETTE))+1
+            call render_snake_head(wx, wy, snakes(i)%dir, id_color)
+        end do
     end subroutine render_map
+
+
+    subroutine render_snake_head(wx, wy, dir, id_color)
+        integer, intent(in) :: wx, wy, dir, id_color
+        type(vector2_type) :: v1, v2, v3
+
+        select case(dir)
+        case(DIR_RIGHT)
+            v1 = vector2_type(wx, wy) ! left top
+            v2 = vector2_type(wx, wy+PIXEL_SIZE)
+            v3 = vector2_type(wx+PIXEL_SIZE, wy+PIXEL_SIZE/2)
+        case(DIR_LEFT)
+            v1 = vector2_type(wx+PIXEL_SIZE, wy) ! right top
+            v2 = vector2_type(wx, wy+PIXEL_SIZE/2)
+            v3 = vector2_type(wx+PIXEL_SIZE, wy+PIXEL_SIZE)
+        case(DIR_DOWN)
+            v1 = vector2_type(wx, wy) ! left top
+            v2 = vector2_type(wx+PIXEL_SIZE/2, wy+PIXEL_SIZE)
+            v3 = vector2_type(wx+PIXEL_SIZE, wy)
+        case(DIR_UP)
+            v1 = vector2_type(wx+PIXEL_SIZE/2, wy) ! center top
+            v2 = vector2_type(wx, wy+PIXEL_SIZE)
+            v3 = vector2_type(wx+PIXEL_SIZE, wy+PIXEL_SIZE)
+        end select
+        call draw_triangle(v1, v2, v3, PALETTE(id_color))
+
+        if (mod(dir,2)==0) then
+            call draw_circle(wx+PIXEL_SIZE/3,wy+PIXEL_SIZE/2,real(PIXEL_SIZE)/8, BLACK)
+            call draw_circle(wx+2*PIXEL_SIZE/3,wy+PIXEL_SIZE/2,real(PIXEL_SIZE)/8, BLACK)
+        else
+            call draw_circle(wx+PIXEL_SIZE/2,wy+PIXEL_SIZE/3,real(PIXEL_SIZE)/8, BLACK)
+            call draw_circle(wx+PIXEL_SIZE/2,wy+2*PIXEL_SIZE/3,real(PIXEL_SIZE)/8, BLACK)
+        end if
+    end subroutine render_snake_head
+
+
+    subroutine render_score(snakes)
+        type(snake_t), intent(in) :: snakes(:)
+
+        character(len=80) :: tbuf
+        integer :: i, wx, wy, fsize, twidth, gap, id_color
+        type(rectangle_type) :: rec
+
+        gap = 5
+        wx = gap
+        fsize = WINDOW_TOP_MARGIN*0.60
+        wy = WINDOW_TOP_MARGIN/2-fsize/2
+        do i=1, size(snakes)
+            write(tbuf,'(i0)') snakes(i)%length
+            twidth = measure_text(' '//trim(tbuf)//' '//c_null_char, fsize)
+            id_color = mod(snakes(i)%id-1, size(PALETTE))+1
+            if (.not. snakes(i)%is_alive) then
+                rec = rectangle_type(real(wx-gap),real(wy-gap),real(twidth+2*gap),real(fsize+2*gap))
+                call draw_rectangle_lines_ex(rec, 3.0, PALETTE(id_color))
+            end if
+            call draw_text(' '//trim(tbuf)//' '//c_null_char, wx, wy, fsize, PALETTE(id_color))
+            wx = wx + twidth + 3*gap
+        end do
+    end subroutine render_score
 
 
     subroutine grow_food(map)
@@ -267,7 +348,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
         end if
     end subroutine grow_snake
 
-    subroutine update_snake(this, map, collision)
+    subroutine move_snake(this, map, collision)
         class(snake_t), intent(inout) :: this
         integer, intent(inout) :: map(:,:)
         integer, intent(out) :: collision
@@ -298,7 +379,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
         this%head%x(2) = modulo(this%head%x(2) + v(2) - 1, MAP_HEIGHT) + 1
         collision = map(this%head%x(1),this%head%x(2))
         map(this%head%x(1),this%head%x(2)) = this%id
-    end subroutine update_snake
+    end subroutine move_snake
 
     subroutine mancontrol_snake(this)
         class(snake_t), intent(inout) :: this

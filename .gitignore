@@ -1,0 +1,6 @@
+.mod/
+hello.c
+hello.f90
+.vscode/
+*.exe
+bind/
