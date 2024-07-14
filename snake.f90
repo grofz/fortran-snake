@@ -78,7 +78,7 @@ contains
             frame_counter = frame_counter + 1
             collision = ID_FREE
             if (mod(frame_counter,UPDATE_FREQ)==0) then
-                call ai_snake(snake, game%map)
+                call ai_snake(snake, game)
                 call update_snake(snake, game%map, collision)
             end if
             if (collision > ID_FREE) then
@@ -250,49 +250,47 @@ contains
         if (is_key_pressed(KEY_X)) call grow_snake(this)
     end subroutine control_snake
 
-    subroutine ai_snake(this, map)
+    subroutine ai_snake(this, game)
         class(snake_t), intent(inout) :: this
-        integer, intent(in) :: map(:,:)
+        type(game_t), intent(in) :: game
 
-        integer :: dir(4), nrep, idir, repmin, repnow, isel
+        integer :: repmin, repulse(4)
+        integer, allocatable :: adir(:)
         real :: x
 
-        nrep = 0
-        repmin = AI_SIGHT_RANGE
-        do idir=1,4
-            repnow = look_at_dir(this, map, idir)
-            if (repnow < repmin) then
-                nrep = 1
-                repmin = repnow
-                dir(nrep) = idir
-            else if (repnow == repmin) then
-                nrep = nrep + 1
-                dir(nrep) = idir
-            end if
-        end do
+        ! pick the best direction, select randomly if more than one direction
+        ! look the same
+        repulse = look_at_dir(this, game, [1,2,3,4])
+        repmin = minval(repulse)
+        adir = pack([1,2,3,4], repulse==repmin)
         call random_number(x)
-        if (repmin == AI_SIGHT_RANGE-1) then
-            print *, 'AI - cul de sac reached'
-        end if
-        if (nrep==0) then
-            print *, 'AI - could not do anything'
-            return
-        end if
-        isel = 1 + int(x*nrep)
-        this%dir = dir(isel)
+        this%dir = adir(1 + int(x*size(adir)))
+        if (repmin == AI_SIGHT_RANGE-1) print *, 'AI - cul de sac reached'
     end subroutine ai_snake
 
-    function look_at_dir(snake, map, dir) result(repulse)
+    elemental function look_at_dir(snake, game, dir) result(repulse)
         type(snake_t), intent(in) :: snake
-        integer, intent(in) :: map(:,:)
+        type(game_t), intent(in) :: game
         integer, intent(in) :: dir
         integer :: repulse
-        
-        block ! LEFT | RIGHT and UP | DOWN are not allowed
+!
+! A ray from head in direction "dir" until snake or food is found
+!              repulse value
+! ----------------------------------
+! H not allow  AI_SIGHT_RANGE
+! H S          5 == AI_SIGHT_RANGE-1 (snake next to head)
+! H > S        4
+! H > > S      3
+! H > > > > >  0 (nothing seen within AI_SIGHT_RANGE from head)        
+! H > > F      -3
+! H > F        -4    
+! H F          -5 (food next to head)
+!        
+        block ! LEFT <> RIGHT and UP <> DOWN jumps are not allowed
             integer :: d1, d2
             d1 = min(snake%dir, dir)
             d2 = max(snake%dir, dir)
-            if (d2-d1 == 2) then
+            if (d2-d1 == 2) then ! change to this direction not allowed
                 repulse = AI_SIGHT_RANGE
                 return
             end if
@@ -305,24 +303,16 @@ contains
             do i=1, AI_SIGHT_RANGE
                 x = modulo(x + DIRS(1,dir) - 1, MAP_WIDTH) + 1
                 y = modulo(y + DIRS(2,dir) - 1, MAP_HEIGHT) + 1
-                if (map(x,y) > ID_FREE) then
+                if (game%map(x,y) > ID_FREE) then ! seeing snake
                     repulse = AI_SIGHT_RANGE - i
                     return
-                else if (map(x,y) == ID_FOOD) then
+                else if (game%map(x,y) == ID_FOOD) then ! seeing food
                     repulse = i - AI_SIGHT_RANGE
                     return
                 end if
             end do
-            repulse = 0
+            repulse = 0 ! nothing have been seen
         end block
-! x 1 2 3 4 5 6=SIGHT
-! x S         6-1 = 5
-! x . S       6-2 = 4
-! x . . S     6-3 = 3
-! x . . . . . 6-6 = 0        
-! x . . F     3-6 = -3
-! x . F .     2-6 = -4    
-! x F . .     1-6 = -5
     end function look_at_dir
 
 end module snake_mod
