@@ -2,5 +2,7 @@
 hello.c
 hello.f90
 .vscode/
-*.exe
+a.exe
+a.out
 bind/
+*.pdf

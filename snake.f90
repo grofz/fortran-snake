@@ -10,8 +10,8 @@ module snake_mod
     integer, parameter :: WINDOW_TOP_MARGIN=30
     integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE
     integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
-    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=2
-    integer, parameter :: NUMBER_OF_SNAKES=16, NUMBER_OF_FOOD=MAP_WIDTH*MAP_HEIGHT*0.001
+    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=1
+    integer, parameter :: NUMBER_OF_SNAKES=16, NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.001)
     integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/4
 
     type(color_type), parameter :: PALETTE(*) = [ &
@@ -64,7 +64,7 @@ contains
             call new_snake(snakes(i), game%snake_counter, game%map)
             ! TODO verify if snake could not be placed
         end do
-        !snakes(1)%ai_agent = 0 ! manual control of snake 1
+       !snakes(1)%ai_agent = 0 ! manual control of snake 1
         do tmp=1, NUMBER_OF_FOOD
             call grow_food(game%map)
         end do
@@ -83,7 +83,7 @@ contains
             call mancontrol_snake(snakes(1))
             frame_counter = frame_counter + 1
             collision = ID_FREE
-            if (mod(frame_counter,UPDATE_FREQ)==0) then
+            if (mod(frame_counter,int(UPDATE_FREQ,int64))==0) then
                 do i=1,NUMBER_OF_SNAKES
                     call aicontrol_snake(snakes(i), game)
                 end do
