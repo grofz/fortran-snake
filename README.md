@@ -33,7 +33,7 @@ $ make PLATFORM=PLATFORM_DESKTOP
 
 ### 2 Download and compile Fortran bindings with raylib
 
--https://github.com/interkosmos/fortran-raylib
+- https://github.com/interkosmos/fortran-raylib
 ```sh
 $ git clone --depth 1 https://github.com/interkosmos/fortran-raylib
 $ cd fortran-raylib
@@ -51,4 +51,16 @@ code.
 $ ./build.sh
 $ ./a.out
 ```
+
+## Instructions
+
+The game speed, board size, number of snakes and number of food is
+controlled by modifying the source code.
+
+- Press 'R' anytime to restart the game
+- Press 'X' anytime to make "Snake #1" grow
+
+All snakes are controlled by a computer. To control "Snake #1" manually,
+uncomment a line in `initialize` subroutine. The snake is then controlled
+by 'ASDW' keys.
 
