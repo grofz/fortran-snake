@@ -1,23 +1,22 @@
 module snake_mod
     use raylib
-    use iso_c_binding, only : c_null_char
+    use iso_c_binding, only : c_null_char, c_double
     use iso_fortran_env, only : int64
     implicit none (type, external)
 
 !integer :: leak_check_counter = 0
 
-    integer, parameter :: WINDOW_WIDTH=1.5*800, WINDOW_HEIGHT=1.5*600, PIXEL_SIZE=10
+    integer, parameter :: WINDOW_WIDTH=800, WINDOW_HEIGHT=600, PIXEL_SIZE=10
     integer, parameter :: WINDOW_TOP_MARGIN=30
     integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE
     integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
-    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=1
-    integer, parameter :: NUMBER_OF_SNAKES=16, NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.001)
+    integer, parameter :: TARGET_FPS=60
+    real(c_double), parameter :: UPDATE_TSTEP=0.1_c_double ! seconds
+    integer, parameter :: NUMBER_OF_SNAKES=8, NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.021)
     integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/4
 
     type(color_type), parameter :: PALETTE(*) = [ &
     & BLACK, BEIGE, LIME, GOLD, PINK, MAROON, SKYBLUE, DARKGRAY, GREEN, DARKGREEN, BLUE, VIOLET]
-
-    integer(int64) :: frame_counter
 
     integer, parameter :: ID_FREE=0, ID_FOOD=-2
     integer, parameter :: STATE_GAME=0, STATE_END=1
@@ -81,9 +80,8 @@ contains
         select case(game%state)
         case(STATE_GAME)
             call mancontrol_snake(snakes(1))
-            frame_counter = frame_counter + 1
             collision = ID_FREE
-            if (mod(frame_counter,int(UPDATE_FREQ,int64))==0) then
+            TSTEP: if (is_time_to_update()) then
                 do i=1,NUMBER_OF_SNAKES
                     call aicontrol_snake(snakes(i), game)
                 end do
@@ -126,7 +124,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
                 do i=1,NUMBER_OF_SNAKES
                     snakes(i)%is_growing = .false.
                 end do
-            end if
+            end if TSTEP
 
             ! end if all is dead
             if (count(snakes%is_alive)==0) game%state = STATE_END
@@ -157,6 +155,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
                     &   WINDOW_TOP_MARGIN+(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/2-fs/2, fs, BLACK)
                 end associate
             end if
+            !call draw_fps(int(0.75*WINDOW_WIDTH), 5)
         call end_drawing()
     end subroutine main_loop
 
@@ -272,6 +271,22 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
     end subroutine grow_food
 
 
+    function is_time_to_update() result(is)
+      logical :: is
+      real(c_double), save :: lasttime = 0.0_c_double
+      real(c_double) :: nowtime
+
+      nowtime = get_time()
+      if (nowtime > lasttime+UPDATE_TSTEP) then
+        is = .true.
+        !lasttime = lasttime+UPDATE_TSTEP
+        lasttime = nowtime
+      else
+        is = .false.
+      end if
+    end function
+
+
     ! ===========
     ! SNAKE CLASS
     ! ===========
@@ -299,7 +314,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
 !leak_check_counter = leak_check_counter+1
         this%tail => this%head
         call random_number(x(1))
-        this%dir = int(x(1)*4)+1 
+        this%dir = int(x(1)*4)+1
         this%is_growing = .false.
         this%is_alive = .true.
         this%ai_agent = 1 ! on default controlled by AI
@@ -368,7 +383,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
         ! move all slices except head
         slice => this%tail
         do
-          if (.not. associated(slice%prev)) exit  
+          if (.not. associated(slice%prev)) exit
           slice%x = slice%prev%x
           slice => slice%prev
         end do
@@ -431,11 +446,11 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
 ! H S          5 == AI_SIGHT_RANGE-1 (snake next to head)
 ! H > S        4
 ! H > > S      3
-! H > > > > >  0 (nothing seen within AI_SIGHT_RANGE from head)        
+! H > > > > >  0 (nothing seen within AI_SIGHT_RANGE from head)
 ! H > > F      -3
-! H > F        -4    
+! H > F        -4
 ! H F          -5 (food next to head)
-!        
+!
         block ! LEFT <> RIGHT and UP <> DOWN jumps are not allowed
             integer :: d1, d2
             d1 = min(snake%dir, dir)
@@ -446,7 +461,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
             end if
         end block
 
-        block ! collision with 
+        block ! collision with
             integer :: x, y, i
             x = snake%head%x(1)
             y = snake%head%x(2)
