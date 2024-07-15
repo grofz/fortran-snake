@@ -175,10 +175,13 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
                     if (map(x,y)<=0 .or. map(x,y)>size(snakes)) error stop 'invalid value in map'
                     id_color = mod(map(x,y)-1, size(PALETTE))+1
                     if (any(snakes(map(x,y))%head%x/=[x,y])) then
-                        call draw_rectangle(wx, wy, PIXEL_SIZE, PIXEL_SIZE, PALETTE(id_color))
+                        !call draw_rectangle(wx, wy, PIXEL_SIZE, PIXEL_SIZE, PALETTE(id_color))
+                        call draw_rectangle_rounded( &
+                        &  rectangle_type(wx, wy, PIXEL_SIZE, PIXEL_SIZE), &
+                        &  0.5, 5, PALETTE(id_color))
                     end if
                 case (ID_FOOD)
-                    call draw_circle(int(wx+0.5*PIXEL_SIZE), int(wy+0.5*PIXEL_SIZE), 0.5*real(PIXEL_SIZE), GREEN) 
+                    call draw_circle(int(wx+0.5*PIXEL_SIZE), int(wy+0.5*PIXEL_SIZE), 0.5*real(PIXEL_SIZE), GREEN)
 
                 case (ID_FREE)
                 end select
@@ -234,7 +237,6 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
 
         character(len=80) :: tbuf
         integer :: i, wx, wy, fsize, twidth, gap, id_color
-        type(rectangle_type) :: rec
 
         gap = 5
         wx = gap
@@ -245,8 +247,9 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
             twidth = measure_text(' '//trim(tbuf)//' '//c_null_char, fsize)
             id_color = mod(snakes(i)%id-1, size(PALETTE))+1
             if (.not. snakes(i)%is_alive) then
-                rec = rectangle_type(real(wx-gap),real(wy-gap),real(twidth+2*gap),real(fsize+2*gap))
-                call draw_rectangle_lines_ex(rec, 3.0, PALETTE(id_color))
+                call draw_rectangle_lines_ex( &
+                &   rectangle_type(real(wx-gap),real(wy-gap),real(twidth+2*gap),real(fsize+2*gap)), &
+                &   3.0, PALETTE(id_color))
             end if
             call draw_text(' '//trim(tbuf)//' '//c_null_char, wx, wy, fsize, PALETTE(id_color))
             wx = wx + twidth + 3*gap

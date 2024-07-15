@@ -17,4 +17,4 @@ bindobs="${bindsrc}/raylib_camera.o \
 
 flags="-fno-range-check --max-errors=1 -Wall -Wextra -pedantic -std=f2018"
 
-gfortran $flags -J$bindsrc snake.f90 $bindobs $libs
+gfortran $flags -I$bindsrc snake.f90 $bindobs $libs
