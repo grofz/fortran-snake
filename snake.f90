@@ -12,8 +12,9 @@ module snake_mod
     integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
     integer, parameter :: TARGET_FPS=60
     real(c_double), parameter :: UPDATE_TSTEP=0.1_c_double ! seconds
-    integer, parameter :: NUMBER_OF_SNAKES=8, NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.021)
-    integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/4
+    integer, parameter :: NUMBER_OF_SNAKES=8
+    integer, parameter :: NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.021)
+    integer, parameter :: AI_SIGHT_RANGE = max(MAP_WIDTH/4,5)
 
     type(color_type), parameter :: PALETTE(*) = [ &
     & BLACK, BEIGE, LIME, GOLD, PINK, MAROON, SKYBLUE, DARKGRAY, GREEN, DARKGREEN, BLUE, VIOLET]
@@ -48,7 +49,7 @@ module snake_mod
     contains
         final :: free_snake
     end type
-    
+
 contains
 
     subroutine initialize(snakes, game)
@@ -97,29 +98,30 @@ contains
                 end do
                 ! resolve collisions
                 do i=1,NUMBER_OF_SNAKES
-                    if (collision(i) > ID_FREE) then
-                        snakes(i)%is_alive = .false.
+                    if (collision(i) <= ID_FREE) cycle
+                    snakes(i)%is_alive = .false.
+                    associate(other_snake=>snakes(collision(i)))
                         ! snake collides into the tail that will be removed in the next frame
-                        associate(other_snake=>snakes(collision(i)))
-                            if (other_snake%id>i .and. .not. other_snake%is_growing .and. &
-                                & all(other_snake%tail%x==snakes(i)%head%x)) then
-                                snakes(i)%is_alive = .true.
+                        if (other_snake%id>i .and. .not. other_snake%is_growing .and. &
+                            & all(other_snake%tail%x==snakes(i)%head%x)) then
+                            snakes(i)%is_alive = .true.
 print '("Close call for ",i0," bumping into ",i0,"s tail")', i, other_snake%id
-                            elseif (other_snake%id==i) then
+                        elseif (other_snake%id==i) then
 print '("Snake ",i0," killed itself")', i
-                            else
+                        elseif (all(other_snake%head%x==snakes(i)%head%x)) then
+print '("Head on collision of ",i0," with ",i0)', i, other_snake%id
+                        else
 print '("Snake ",i0," killed by ",i0)', i, other_snake%id
-                            end if
+                        end if
 
-                            ! head on with other snake (correct that other snake did not collide)
-                            if (other_snake%id<i .and. all(other_snake%head%x==snakes(i)%head%x)) then
-                                other_snake%is_alive = .false.
-                                ! food claimed by two snakes during head on collision
-                                if (other_snake%is_growing) other_snake%length=other_snake%length-1
+                        ! head on with other snake (correct that other snake did not collide)
+                        if (other_snake%id<i .and. all(other_snake%head%x==snakes(i)%head%x)) then
+                            other_snake%is_alive = .false.
+                            ! food claimed by two snakes during head on collision
+                            if (other_snake%is_growing) other_snake%length=other_snake%length-1
 print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
-                            end if
-                        end associate
-                    end if
+                        end if
+                    end associate
                 end do
                 do i=1,NUMBER_OF_SNAKES
                     snakes(i)%is_growing = .false.

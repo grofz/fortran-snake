@@ -2,7 +2,11 @@
 
 set -xe
 
+# Linux Wauland
 libs="-lraylib -lGL -lm -lpthread -ldl -lrt -lwayland-client -lwayland-cursor -lwayland-egl -lxkbcommon"
+
+# Linux X11
+#libs="-lraylib -lGL -lm -lpthread -ldl -lrt -lX11"
 
 bindsrc=../fortran-raylib
 
