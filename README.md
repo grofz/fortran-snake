@@ -3,6 +3,8 @@
 This is just a short attempt to code a classical "Snake" game
 in Fortran.
 
+![Illustration picture](assets/illustration.png)
+
 ## Installation
 
 ### 1 Raylib
