@@ -26,17 +26,16 @@ module snake_mod
     integer, parameter :: DIR_LEFT=1, DIR_DOWN=2, DIR_RIGHT=3, DIR_UP=4
     integer, parameter :: DIRS(2,4) = reshape([-1, 0, 0, 1, 1, 0, 0, -1], shape=[2,4])
 
-    type game_t
-        integer :: map(MAP_WIDTH, MAP_HEIGHT)
-        integer :: state, snake_counter
-    end type game_t
-
 ! SNAKE
 ! head <- slice3 <- slice2 <- tail
     type snakeslice_t
         integer :: x(2)
         type(snakeslice_t), pointer :: prev => null()
     end type snakeslice_t
+
+    type snakeslice_ptr
+        type(snakeslice_t), pointer :: p => null()
+    end type
 
     type snake_t
         type(snakeslice_t), pointer :: head => null()
@@ -46,10 +45,28 @@ module snake_mod
         logical :: is_alive = .true.
         integer :: length = 1
         integer :: ai_agent = 1
+        logical :: ai_be_chicken = .true.
         integer :: id
     contains
         final :: free_snake
     end type
+
+!TODO make snakes part of the game to simplify, then this will no longer be needed
+    type snakeheads_t
+        type(snakeslice_ptr), allocatable :: head_ptrs(:)
+        logical, allocatable :: is_alive(:)
+    contains
+        procedure :: update_heads => snakeheads_update_heads
+    end type
+
+
+    ! GAME
+    type game_t
+        integer :: map(MAP_WIDTH, MAP_HEIGHT)
+        integer :: state, snake_counter
+        type(snakeheads_t) :: snakehead_list
+    end type game_t
+
 
 contains
 
@@ -64,6 +81,13 @@ contains
         do i=1,NUMBER_OF_SNAKES
             call new_snake(snakes(i), game%snake_counter, game%map)
             ! TODO verify if snake could not be placed
+
+            ! Try to avoid tiles where other snake can enter in the next turn
+            if (mod(i,2)==0) then
+              snakes(i)%ai_be_chicken = .true.
+            else
+              snakes(i)%ai_be_chicken = .true. !.false.
+            end if
         end do
         snakes(1)%ai_agent = 0 ! manual control of snake 1
         do tmp=1, NUMBER_OF_FOOD
@@ -84,6 +108,7 @@ contains
             call mancontrol_snake(snakes(1))
             collision = ID_FREE
             TSTEP: if (is_time_to_update()) then
+                call game%snakehead_list%update_heads(snakes)
                 do i=1,NUMBER_OF_SNAKES
                     call aicontrol_snake(snakes(i), game)
                 end do
@@ -442,7 +467,7 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
         !if (repmin == AI_SIGHT_RANGE-1) print '("AI - cul de sac reached (",i0,")")', this%id
     end subroutine aicontrol_snake
 
-    elemental function look_at_dir(snake, game, dir) result(repulse)
+    impure elemental function look_at_dir(snake, game, dir) result(repulse)
         type(snake_t), intent(in) :: snake
         type(game_t), intent(in) :: game
         integer, intent(in) :: dir
@@ -470,6 +495,30 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
             end if
         end block
 
+        CHICKEN: block
+          integer :: i, j, x, y, other_x, other_y
+          if (.not. snake%ai_be_chicken) exit CHICKEN
+          ! Look out for another head that is next to our first square on the ray.
+          ! Try to avoid steping onto such square
+          x = modulo(snake%head%x(1) + DIRS(1,dir) - 1, MAP_WIDTH) + 1
+          y = modulo(snake%head%x(2) + DIRS(2,dir) - 1, MAP_HEIGHT) + 1
+          associate(list=>game%snakehead_list%head_ptrs)
+            do i=1, size(list)
+              ! our head or dead heads ignored
+              if (i==snake%id .or. .not. game%snakehead_list%is_alive(i)) cycle
+              do j=1, size(DIRS,dim=2)
+                other_x = modulo(list(i)%p%x(1) + DIRS(1,j) - 1, MAP_WIDTH) + 1
+                other_y = modulo(list(i)%p%x(2) + DIRS(2,j) - 1, MAP_HEIGHT) + 1
+                if (other_x==x .and. other_y==y) then
+!print '("Snake ",i0," sees head of enemy snake ",i0," near")', snake%id, i
+                  repulse = AI_SIGHT_RANGE - 2 ! do not crash if better choice
+                  return
+                end if
+              end do
+            end do
+          end associate
+        end block CHICKEN
+
         block ! collision with
             integer :: x, y, i
             x = snake%head%x(1)
@@ -487,7 +536,32 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
             end do
             repulse = 0 ! nothing have been seen
         end block
+
     end function look_at_dir
+
+
+    subroutine snakeheads_update_heads(this, snakes)
+      class(snakeheads_t), intent(inout) :: this
+      type(snake_t), intent(in) :: snakes(:)
+
+      integer :: i
+
+      ! Make sure "head_ptrs" and "snakes" have same size
+      if (allocated(this%head_ptrs)) then
+        if (size(this%head_ptrs) /= size(snakes)) then
+          deallocate(this%head_ptrs)
+          deallocate(this%is_alive)
+        end if
+      end if
+      if (.not. allocated(this%head_ptrs)) then
+        allocate(this%head_ptrs(size(snakes)), this%is_alive(size(snakes)))
+      end if
+
+      do i=1, size(snakes)
+        this%head_ptrs(i)%p => snakes(i)%head
+        this%is_alive(i) = snakes(i)%is_alive
+      end do
+    end subroutine snakeheads_update_heads
 
 end module snake_mod
 
