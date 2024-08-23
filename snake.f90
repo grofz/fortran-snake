@@ -51,27 +51,17 @@ module snake_mod
         final :: free_snake
     end type
 
-!TODO make snakes part of the game to simplify, then this will no longer be needed
-    type snakeheads_t
-        type(snakeslice_ptr), allocatable :: head_ptrs(:)
-        logical, allocatable :: is_alive(:)
-    contains
-        procedure :: update_heads => snakeheads_update_heads
-    end type
-
-
     ! GAME
     type game_t
         integer :: map(MAP_WIDTH, MAP_HEIGHT)
         integer :: state, snake_counter
-        type(snakeheads_t) :: snakehead_list
+        type(snake_t), allocatable :: snakes(:)
     end type game_t
 
 
 contains
 
-    subroutine initialize(snakes, game)
-        type(snake_t), intent(inout) :: snakes(:)
+    subroutine initialize(game)
         type(game_t), intent(inout) :: game
         integer :: tmp, i
 
@@ -79,25 +69,24 @@ contains
         game%map = ID_FREE
         game%snake_counter = 0
         do i=1,NUMBER_OF_SNAKES
-            call new_snake(snakes(i), game%snake_counter, game%map)
+            call new_snake(game%snakes(i), game%snake_counter, game%map)
             ! TODO verify if snake could not be placed
 
             ! Try to avoid tiles where other snake can enter in the next turn
             if (mod(i,2)==0) then
-              snakes(i)%ai_be_chicken = .true.
+              game%snakes(i)%ai_be_chicken = .true.
             else
-              snakes(i)%ai_be_chicken = .true. !.false.
+              game%snakes(i)%ai_be_chicken = .true. !.false.
             end if
         end do
-        snakes(1)%ai_agent = 0 ! manual control of snake 1
+        game%snakes(1)%ai_agent = 0 ! manual control of snake 1
         do tmp=1, NUMBER_OF_FOOD
             call grow_food(game%map)
         end do
     end subroutine initialize
 
 
-    subroutine main_loop(snakes, game)
-        type(snake_t), intent(inout) :: snakes(:)
+    subroutine main_loop(game)
         type(game_t), intent(inout) :: game
 
         integer :: collision(NUMBER_OF_SNAKES), i
@@ -105,43 +94,42 @@ contains
 
         select case(game%state)
         case(STATE_GAME)
-            call mancontrol_snake(snakes(1))
+            call mancontrol_snake(game%snakes(1))
             collision = ID_FREE
             TSTEP: if (is_time_to_update()) then
-                call game%snakehead_list%update_heads(snakes)
                 do i=1,NUMBER_OF_SNAKES
-                    call aicontrol_snake(snakes(i), game)
+                    call aicontrol_snake(game%snakes(i), game)
                 end do
                 do i=1,NUMBER_OF_SNAKES
-                    call move_snake(snakes(i), game%map, collision(i))
+                    call move_snake(game%snakes(i), game%map, collision(i))
                 end do
                 ! grow snakes that have eaten food
                 do i=1,NUMBER_OF_SNAKES
                     if (collision(i)==ID_FOOD) then
-                        call grow_snake(snakes(i))
+                        call grow_snake(game%snakes(i))
                         call grow_food(game%map)
                     end if
                 end do
                 ! resolve collisions
                 do i=1,NUMBER_OF_SNAKES
                     if (collision(i) <= ID_FREE) cycle
-                    snakes(i)%is_alive = .false.
-                    associate(other_snake=>snakes(collision(i)))
+                    game%snakes(i)%is_alive = .false.
+                    associate(other_snake=>game%snakes(collision(i)))
                         ! snake collides into the tail that will be removed in the next frame
                         if (other_snake%id>i .and. .not. other_snake%is_growing .and. &
-                            & all(other_snake%tail%x==snakes(i)%head%x)) then
-                            snakes(i)%is_alive = .true.
+                            & all(other_snake%tail%x==game%snakes(i)%head%x)) then
+                            game%snakes(i)%is_alive = .true.
 print '("Close call for ",i0," bumping into ",i0,"s tail")', i, other_snake%id
                         elseif (other_snake%id==i) then
-print '("Snake ",i0," killed itself (score ",i0,")")', i, snakes(i)%length
-                        elseif (all(other_snake%head%x==snakes(i)%head%x)) then
-print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', i, other_snake%id, snakes(i)%length
+print '("Snake ",i0," killed itself (score ",i0,")")', i, game%snakes(i)%length
+                        elseif (all(other_snake%head%x==game%snakes(i)%head%x)) then
+print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', i, other_snake%id, game%snakes(i)%length
                         else
-print '("Snake ",i0," killed by ",i0," (score ",i0,")")', i, other_snake%id, snakes(i)%length
+print '("Snake ",i0," killed by ",i0," (score ",i0,")")', i, other_snake%id, game%snakes(i)%length
                         end if
 
                         ! head on with other snake (correct that other snake did not collide)
-                        if (other_snake%id<i .and. all(other_snake%head%x==snakes(i)%head%x)) then
+                        if (other_snake%id<i .and. all(other_snake%head%x==game%snakes(i)%head%x)) then
                             other_snake%is_alive = .false.
                             ! food claimed by two snakes during head on collision
                             if (other_snake%is_growing) other_snake%length=other_snake%length-1
@@ -150,13 +138,13 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
                     end associate
                 end do
                 do i=1,NUMBER_OF_SNAKES
-                    snakes(i)%is_growing = .false.
+                    game%snakes(i)%is_growing = .false.
                 end do
             end if TSTEP
 
             ! end if all is dead
-            if (count(snakes%is_alive)==0) then
-              print '("Total score ",i0)', sum(snakes%length)
+            if (count(game%snakes%is_alive)==0) then
+              print '("Total score ",i0)', sum(game%snakes%length)
               game%state = STATE_END
             end if
 
@@ -168,16 +156,16 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
 
         ! manual restart
         if (is_key_pressed(KEY_R)) then
-            call initialize(snakes, game)
+            call initialize(game)
             print '(/,"Game restarted")'
         end if
 
         call begin_drawing()
             call clear_background(RAYWHITE)
-            call render_map(game%map, snakes)
+            call render_map(game%map, game%snakes)
             call draw_line(0, WINDOW_TOP_MARGIN, WINDOW_WIDTH, WINDOW_TOP_MARGIN, BLACK)
             call draw_line(0, WINDOW_TOP_MARGIN+WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_TOP_MARGIN+WINDOW_HEIGHT, BLACK)
-            call render_score(snakes)
+            call render_score(game%snakes)
             if (game%state==STATE_END) then
                 text_buff = 'PRESS "R" TO RESTART'//c_null_char
                 associate (fs=>35)
@@ -502,13 +490,13 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
           ! Try to avoid steping onto such square
           x = modulo(snake%head%x(1) + DIRS(1,dir) - 1, MAP_WIDTH) + 1
           y = modulo(snake%head%x(2) + DIRS(2,dir) - 1, MAP_HEIGHT) + 1
-          associate(list=>game%snakehead_list%head_ptrs)
-            do i=1, size(list)
+          associate(others=>game%snakes)
+            do i=1, size(others)
               ! our head or dead heads ignored
-              if (i==snake%id .or. .not. game%snakehead_list%is_alive(i)) cycle
+              if (i==snake%id .or. .not. others(i)%is_alive) cycle
               do j=1, size(DIRS,dim=2)
-                other_x = modulo(list(i)%p%x(1) + DIRS(1,j) - 1, MAP_WIDTH) + 1
-                other_y = modulo(list(i)%p%x(2) + DIRS(2,j) - 1, MAP_HEIGHT) + 1
+                other_x = modulo(others(i)%head%x(1) + DIRS(1,j) - 1, MAP_WIDTH) + 1
+                other_y = modulo(others(i)%head%x(2) + DIRS(2,j) - 1, MAP_HEIGHT) + 1
                 if (other_x==x .and. other_y==y) then
 !print '("Snake ",i0," sees head of enemy snake ",i0," near")', snake%id, i
                   repulse = AI_SIGHT_RANGE - 2 ! do not crash if better choice
@@ -540,29 +528,6 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
     end function look_at_dir
 
 
-    subroutine snakeheads_update_heads(this, snakes)
-      class(snakeheads_t), intent(inout) :: this
-      type(snake_t), intent(in) :: snakes(:)
-
-      integer :: i
-
-      ! Make sure "head_ptrs" and "snakes" have same size
-      if (allocated(this%head_ptrs)) then
-        if (size(this%head_ptrs) /= size(snakes)) then
-          deallocate(this%head_ptrs)
-          deallocate(this%is_alive)
-        end if
-      end if
-      if (.not. allocated(this%head_ptrs)) then
-        allocate(this%head_ptrs(size(snakes)), this%is_alive(size(snakes)))
-      end if
-
-      do i=1, size(snakes)
-        this%head_ptrs(i)%p => snakes(i)%head
-        this%is_alive(i) = snakes(i)%is_alive
-      end do
-    end subroutine snakeheads_update_heads
-
 end module snake_mod
 
 
@@ -574,13 +539,13 @@ program main
     implicit none (type, external)
 
     block
-        type(snake_t) :: snakes(NUMBER_OF_SNAKES)
         type(game_t) :: game
+        allocate(game%snakes(NUMBER_OF_SNAKES))
         call init_window(WINDOW_WIDTH, WINDOW_HEIGHT, "Snake v 01"//c_null_char)
         call set_target_fps(TARGET_FPS)
-        call initialize(snakes, game)
+        call initialize(game)
         do while (.not. window_should_close())
-            call main_loop(snakes, game)
+            call main_loop(game)
         end do
         call close_window()
     end block
