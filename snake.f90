@@ -11,8 +11,9 @@ module snake_mod
     integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE
     integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
     integer, parameter :: TARGET_FPS=60
-    real(c_double), parameter :: UPDATE_TSTEP=0.1_c_double ! seconds
-    integer, parameter :: NUMBER_OF_SNAKES=8
+   !real(c_double), parameter :: UPDATE_TSTEP=0.01_c_double ! seconds
+    real(c_double), parameter :: UPDATE_TSTEP=0.2_c_double ! seconds
+    integer, parameter :: NUMBER_OF_SNAKES=12
     integer, parameter :: NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.021)
     integer, parameter :: AI_SIGHT_RANGE = max(MAP_WIDTH/4,5)
 
@@ -64,7 +65,7 @@ contains
             call new_snake(snakes(i), game%snake_counter, game%map)
             ! TODO verify if snake could not be placed
         end do
-       !snakes(1)%ai_agent = 0 ! manual control of snake 1
+        snakes(1)%ai_agent = 0 ! manual control of snake 1
         do tmp=1, NUMBER_OF_FOOD
             call grow_food(game%map)
         end do
@@ -107,11 +108,11 @@ contains
                             snakes(i)%is_alive = .true.
 print '("Close call for ",i0," bumping into ",i0,"s tail")', i, other_snake%id
                         elseif (other_snake%id==i) then
-print '("Snake ",i0," killed itself")', i
+print '("Snake ",i0," killed itself (score ",i0,")")', i, snakes(i)%length
                         elseif (all(other_snake%head%x==snakes(i)%head%x)) then
-print '("Head on collision of ",i0," with ",i0)', i, other_snake%id
+print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', i, other_snake%id, snakes(i)%length
                         else
-print '("Snake ",i0," killed by ",i0)', i, other_snake%id
+print '("Snake ",i0," killed by ",i0," (score ",i0,")")', i, other_snake%id, snakes(i)%length
                         end if
 
                         ! head on with other snake (correct that other snake did not collide)
@@ -119,7 +120,7 @@ print '("Snake ",i0," killed by ",i0)', i, other_snake%id
                             other_snake%is_alive = .false.
                             ! food claimed by two snakes during head on collision
                             if (other_snake%is_growing) other_snake%length=other_snake%length-1
-print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
+print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%id, i, other_snake%length
                         end if
                     end associate
                 end do
@@ -129,7 +130,10 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
             end if TSTEP
 
             ! end if all is dead
-            if (count(snakes%is_alive)==0) game%state = STATE_END
+            if (count(snakes%is_alive)==0) then
+              print '("Total score ",i0)', sum(snakes%length)
+              game%state = STATE_END
+            end if
 
         case(STATE_END)
             continue
@@ -157,7 +161,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
                     &   WINDOW_TOP_MARGIN+(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/2-fs/2, fs, BLACK)
                 end associate
             end if
-            !call draw_fps(int(0.75*WINDOW_WIDTH), 5)
+            call draw_fps(int(0.75*WINDOW_WIDTH), 5)
         call end_drawing()
     end subroutine main_loop
 
@@ -175,7 +179,7 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
                     if (map(x,y)<=0 .or. map(x,y)>size(snakes)) error stop 'invalid value in map'
                     id_color = mod(map(x,y)-1, size(PALETTE))+1
                     if (any(snakes(map(x,y))%head%x/=[x,y])) then
-                        !call draw_rectangle(wx, wy, PIXEL_SIZE, PIXEL_SIZE, PALETTE(id_color))
+                       !call draw_rectangle(wx, wy, PIXEL_SIZE, PIXEL_SIZE, PALETTE(id_color))
                         call draw_rectangle_rounded( &
                         &  rectangle_type(wx, wy, PIXEL_SIZE, PIXEL_SIZE), &
                         &  0.5, 5, PALETTE(id_color))
