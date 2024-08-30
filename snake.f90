@@ -10,12 +10,12 @@ module snake_mod
     integer, parameter :: WINDOW_TOP_MARGIN=30
     integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE
     integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
-    integer, parameter :: TARGET_FPS=60, UPDATE_FREQ=2
-    integer, parameter :: NUMBER_OF_SNAKES=16, NUMBER_OF_FOOD=MAP_WIDTH*MAP_HEIGHT*0.001
+    integer, parameter :: TARGET_FPS=30, UPDATE_FREQ=6
+    integer, parameter :: NUMBER_OF_SNAKES=4, NUMBER_OF_FOOD=1000 !MAP_WIDTH*MAP_HEIGHT*0.011
     integer, parameter :: AI_SIGHT_RANGE = MAP_WIDTH/4
 
     type(color_type), parameter :: PALETTE(*) = [ &
-    & BLACK, BEIGE, LIME, GOLD, PINK, MAROON, SKYBLUE, DARKGRAY, GREEN, DARKGREEN, BLUE, VIOLET]
+    & VIOLET, GOLD, DARKGREEN, BLACK, LIME, PINK, BEIGE, MAROON, DARKGRAY, GREEN, SKYBLUE, BLUE ]
 
     integer(int64) :: frame_counter
 
@@ -24,6 +24,11 @@ module snake_mod
     ! Left, Down, Right, Up
     integer, parameter :: DIR_LEFT=1, DIR_DOWN=2, DIR_RIGHT=3, DIR_UP=4
     integer, parameter :: DIRS(2,4) = reshape([-1, 0, 0, 1, 1, 0, 0, -1], shape=[2,4])
+
+    integer, parameter :: KEYS_LEFT(2)  = [KEY_LEFT, KEY_A]
+    integer, parameter :: KEYS_DOWN(2)  = [KEY_DOWN, KEY_S]
+    integer, parameter :: KEYS_UP(2)    = [KEY_UP, KEY_W]
+    integer, parameter :: KEYS_RIGHT(2) = [KEY_RIGHT, KEY_D]
 
     type game_t
         integer :: map(MAP_WIDTH, MAP_HEIGHT)
@@ -64,7 +69,8 @@ contains
             call new_snake(snakes(i), game%snake_counter, game%map)
             ! TODO verify if snake could not be placed
         end do
-        !snakes(1)%ai_agent = 0 ! manual control of snake 1
+        snakes(1)%ai_agent = 0 ! manual control of snake 1
+        snakes(2)%ai_agent = 0 ! manual control of snake 2
         do tmp=1, NUMBER_OF_FOOD
             call grow_food(game%map)
         end do
@@ -81,6 +87,7 @@ contains
         select case(game%state)
         case(STATE_GAME)
             call mancontrol_snake(snakes(1))
+            call mancontrol_snake(snakes(2))
             frame_counter = frame_counter + 1
             collision = ID_FREE
             if (mod(frame_counter,UPDATE_FREQ)==0) then
@@ -384,14 +391,14 @@ print '("Head on collision of ",i0," with ",i0)', other_snake%id, i
     subroutine mancontrol_snake(this)
         class(snake_t), intent(inout) :: this
 
-        if (is_key_down(KEY_D) .and. this%dir/=DIR_LEFT) then
+        if (is_key_down(KEYS_RIGHT(this%id)) .and. this%dir/=DIR_LEFT) then
             this%dir = DIR_RIGHT
-        else if (is_key_down(KEY_A) .and. this%dir/=DIR_RIGHT) then
+        else if (is_key_down(KEYS_LEFT(this%id)) .and. this%dir/=DIR_RIGHT) then
             this%dir = DIR_LEFT
         end if
-        if (is_key_down(KEY_S) .and. this%dir/=DIR_UP) then
+        if (is_key_down(KEYS_DOWN(this%id)) .and. this%dir/=DIR_UP) then
             this%dir = DIR_DOWN
-        else if (is_key_down(KEY_W) .and. this%dir/=DIR_DOWN) then
+        else if (is_key_down(KEYS_UP(this%id)) .and. this%dir/=DIR_DOWN) then
             this%dir = DIR_UP
         end if
 

@@ -1,1 +1,1 @@
- gfortran -Jbind/fortran-raylib hello.f90 -lraylib -lwinmm -lgdi32 -fno-range-check --max-errors=1
+ gfortran -Jbind/fortran-raylib snake.f90 -lraylib -lwinmm -lgdi32 -fno-range-check --max-errors=1
