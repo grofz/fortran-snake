@@ -1,6 +1,6 @@
 module snake_mod
     use raylib
-    use iso_c_binding, only : c_null_char, c_double
+    use iso_c_binding, only : c_null_char, c_double, c_int
     use iso_fortran_env, only : int64
     implicit none (type, external)
 
@@ -12,13 +12,22 @@ module snake_mod
     integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
     integer, parameter :: TARGET_FPS=60
    !real(c_double), parameter :: UPDATE_TSTEP=0.01_c_double ! seconds
-    real(c_double), parameter :: UPDATE_TSTEP=0.2_c_double ! seconds
+    real(c_double), parameter :: UPDATE_TSTEP=0.4_c_double ! seconds
     integer, parameter :: NUMBER_OF_SNAKES=12
     integer, parameter :: NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.021)
     integer, parameter :: AI_SIGHT_RANGE = max(MAP_WIDTH/4,5)
 
     type(color_type), parameter :: PALETTE(*) = [ &
     & BLACK, BEIGE, LIME, GOLD, PINK, MAROON, SKYBLUE, DARKGRAY, GREEN, DARKGREEN, BLUE, VIOLET]
+
+    ! Key mappings
+    integer(kind=c_int), parameter :: KEY_MAP(4,2) = reshape([ &
+    &  KEY_A,    KEY_S,    KEY_D,     KEY_W, & ! Player -1
+    &  KEY_LEFT, KEY_DOWN, KEY_RIGHT, KEY_UP & ! Player -2
+    & ], shape(KEY_MAP))
+
+    ! Sounds
+    type(sound_type) :: eat_sound, boing_sound
 
     integer, parameter :: ID_FREE=0, ID_FOOD=-2
     integer, parameter :: STATE_GAME=0, STATE_END=1
@@ -44,7 +53,7 @@ module snake_mod
         logical :: is_growing = .false.
         logical :: is_alive = .true.
         integer :: length = 1
-        integer :: ai_agent = 1
+        integer :: ai_agent = 1  ! 1=ai_control, -1,-2=controlled by key_map
         logical :: ai_be_chicken = .true.
         integer :: id
     contains
@@ -79,7 +88,8 @@ contains
               game%snakes(i)%ai_be_chicken = .true. !.false.
             end if
         end do
-        game%snakes(1)%ai_agent = 0 ! manual control of snake 1
+        game%snakes(1)%ai_agent = -2 ! manual control of snake 1 (-2=arrow keys)
+        game%snakes(2)%ai_agent = -1 ! manual control of snake 2 (-1=adsw)
         do tmp=1, NUMBER_OF_FOOD
             call grow_food(game%map)
         end do
@@ -94,7 +104,9 @@ contains
 
         select case(game%state)
         case(STATE_GAME)
-            call mancontrol_snake(game%snakes(1))
+            do i=1,min(2,NUMBER_OF_SNAKES)
+              call mancontrol_snake(game%snakes(i))
+            end do
             collision = ID_FREE
             TSTEP: if (is_time_to_update()) then
                 do i=1,NUMBER_OF_SNAKES
@@ -114,6 +126,7 @@ contains
                 do i=1,NUMBER_OF_SNAKES
                     if (collision(i) <= ID_FREE) cycle
                     game%snakes(i)%is_alive = .false.
+                    call play_sound(boing_sound)
                     associate(other_snake=>game%snakes(collision(i)))
                         ! snake collides into the tail that will be removed in the next frame
                         if (other_snake%id>i .and. .not. other_snake%is_growing .and. &
@@ -380,6 +393,8 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
             this%tail => newslice
             this%is_growing = .true.
             this%length = this%length + 1
+            if (this%ai_agent<0) call play_sound(eat_sound)
+            !call play_sound(eat_sound)
         else
             print *, 'Warning: cool-down is active'
         end if
@@ -421,18 +436,24 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
     subroutine mancontrol_snake(this)
         class(snake_t), intent(inout) :: this
 
-        if (is_key_down(KEY_D) .and. this%dir/=DIR_LEFT) then
-            this%dir = DIR_RIGHT
-        else if (is_key_down(KEY_A) .and. this%dir/=DIR_RIGHT) then
-            this%dir = DIR_LEFT
-        end if
-        if (is_key_down(KEY_S) .and. this%dir/=DIR_UP) then
-            this%dir = DIR_DOWN
-        else if (is_key_down(KEY_W) .and. this%dir/=DIR_DOWN) then
-            this%dir = DIR_UP
-        end if
+        if (this%ai_agent > 0) return ! controlled by AI
 
-        if (is_key_pressed(KEY_X)) call grow_snake(this)
+        associate(kmap => KEY_MAP(:,-this%ai_agent))
+          if (is_key_down(kmap(DIR_RIGHT)) .and. this%dir/=DIR_LEFT) then
+              this%dir = DIR_RIGHT
+          else if (is_key_down(kmap(DIR_LEFT)) .and. this%dir/=DIR_RIGHT) then
+              this%dir = DIR_LEFT
+          end if
+          if (is_key_down(kmap(DIR_DOWN)) .and. this%dir/=DIR_UP) then
+              this%dir = DIR_DOWN
+          else if (is_key_down(kmap(DIR_UP)) .and. this%dir/=DIR_DOWN) then
+              this%dir = DIR_UP
+          end if
+        end associate
+
+        if (is_key_pressed(KEY_X)) then
+          call grow_snake(this)
+        end if
     end subroutine mancontrol_snake
 
     subroutine aicontrol_snake(this, game)
@@ -534,19 +555,29 @@ end module snake_mod
 
 program main
     use snake_mod, only : c_null_char, WINDOW_WIDTH, WINDOW_HEIGHT, main_loop, &
-    & TARGET_FPS, initialize, snake_t, game_t, NUMBER_OF_SNAKES !, leak_check_counter
-    use raylib, only : window_should_close, init_window, close_window, set_target_fps
+    & TARGET_FPS, initialize, snake_t, game_t, NUMBER_OF_SNAKES, &
+    & eat_sound, boing_sound !, leak_check_counter
+    use raylib, only : window_should_close, init_window, close_window, set_target_fps, &
+    & init_audio_device, load_sound, unload_sound, close_audio_device
     implicit none (type, external)
 
     block
         type(game_t) :: game
         allocate(game%snakes(NUMBER_OF_SNAKES))
         call init_window(WINDOW_WIDTH, WINDOW_HEIGHT, "Snake v 01"//c_null_char)
+        call init_audio_device()
+        eat_sound = load_sound("assets/eat.wav"//c_null_char)
+        boing_sound = load_sound("assets/boing.wav"//c_null_char)
         call set_target_fps(TARGET_FPS)
         call initialize(game)
+
         do while (.not. window_should_close())
             call main_loop(game)
         end do
+
+       !call unload_sound(eat_sound)
+       !call unload_sound(boing_sound)
+        call close_audio_device()
         call close_window()
     end block
 !print *, 'Leak check = ',leak_check_counter
