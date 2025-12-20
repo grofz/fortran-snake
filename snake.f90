@@ -6,19 +6,20 @@ module snake_mod
 
 !integer :: leak_check_counter = 0
 
-    integer, parameter :: WINDOW_WIDTH=800, WINDOW_HEIGHT=600, PIXEL_SIZE=10
-    integer, parameter :: WINDOW_TOP_MARGIN=30
+    integer, parameter :: WINDOW_WIDTH=1200, WINDOW_HEIGHT=900, PIXEL_SIZE=15
+    integer, parameter :: WINDOW_TOP_MARGIN=45
     integer, parameter :: MAP_WIDTH=WINDOW_WIDTH/PIXEL_SIZE
     integer, parameter :: MAP_HEIGHT=(WINDOW_HEIGHT-WINDOW_TOP_MARGIN)/PIXEL_SIZE
     integer, parameter :: TARGET_FPS=60
    !real(c_double), parameter :: UPDATE_TSTEP=0.01_c_double ! seconds
     real(c_double), parameter :: UPDATE_TSTEP=0.4_c_double ! seconds
-    integer, parameter :: NUMBER_OF_SNAKES=12
-    integer, parameter :: NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.021)
+    integer, parameter :: NUMBER_OF_SNAKES=5
+    integer, parameter :: NUMBER_OF_FOOD=int(MAP_WIDTH*MAP_HEIGHT*0.161)
+    real, parameter :: POISSON_FRACTION = 0.05
     integer, parameter :: AI_SIGHT_RANGE = max(MAP_WIDTH/4,5)
 
     type(color_type), parameter :: PALETTE(*) = [ &
-    & BLACK, BEIGE, LIME, GOLD, PINK, MAROON, SKYBLUE, DARKGRAY, GREEN, DARKGREEN, BLUE, VIOLET]
+    & PINK, LIME, BLUE, GOLD, MAROON, SKYBLUE, DARKGRAY, GREEN, DARKGREEN, BEIGE, VIOLET, BLACK]
 
     ! Key mappings
     integer(kind=c_int), parameter :: KEY_MAP(4,2) = reshape([ &
@@ -29,7 +30,7 @@ module snake_mod
     ! Sounds
     type(sound_type) :: eat_sound, boing_sound
 
-    integer, parameter :: ID_FREE=0, ID_FOOD=-2
+    integer, parameter :: ID_FREE=0, ID_FOOD=-2, ID_POISSON=-3
     integer, parameter :: STATE_GAME=0, STATE_END=1
     ! Left, Down, Right, Up
     integer, parameter :: DIR_LEFT=1, DIR_DOWN=2, DIR_RIGHT=3, DIR_UP=4
@@ -120,6 +121,11 @@ contains
                     if (collision(i)==ID_FOOD) then
                         call grow_snake(game%snakes(i))
                         call grow_food(game%map)
+                    end if
+                    if (collision(i)==ID_POISSON) then
+                        game%snakes(i)%is_alive = .false.
+                        call play_sound(boing_sound)
+print '("Poisson eaten by ",i0)', i
                     end if
                 end do
                 ! resolve collisions
@@ -212,7 +218,8 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
                     end if
                 case (ID_FOOD)
                     call draw_circle(int(wx+0.5*PIXEL_SIZE), int(wy+0.5*PIXEL_SIZE), 0.5*real(PIXEL_SIZE), GREEN)
-
+                case (ID_POISSON)
+                    call draw_circle(int(wx+0.5*PIXEL_SIZE), int(wy+0.5*PIXEL_SIZE), 0.5*real(PIXEL_SIZE), RED)
                 case (ID_FREE)
                 end select
             end do
@@ -298,7 +305,12 @@ print '("Head on collision of ",i0," with ",i0," (score ",i0,")")', other_snake%
             x = int(f(1)*MAP_WIDTH)+1
             y = int(f(2)*MAP_HEIGHT)+1
             if (map(x,y)==ID_FREE) then
-                map(x,y) = ID_FOOD
+                call random_number(f)
+                if (f(1) < POISSON_FRACTION) then
+                    map(x,y) = ID_POISSON
+                else
+                    map(x,y) = ID_FOOD
+                end if
                 exit
             end if
         end do
